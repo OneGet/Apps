@@ -12,7 +12,7 @@
 //  limitations under the License.
 //
 
-namespace PackageManagement.Sdk {
+namespace PackageManagement.AppSyndication.Sdk {
     public enum ErrorCategory {
         NotSpecified,
         OpenError,

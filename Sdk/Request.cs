@@ -12,7 +12,7 @@
 //  limitations under the License.
 //
 
-namespace PackageManagement.Sdk {
+namespace PackageManagement.AppSyndication.Sdk {
     using System;
     using System.Collections.Generic;
     using System.Globalization;

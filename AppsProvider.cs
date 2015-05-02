@@ -12,13 +12,13 @@
 //  limitations under the License.
 //
 
-using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.Linq;
-using PackageManagement.Sdk;
+namespace PackageManagement.AppSyndication {
+    using System;
+    using System.Collections.Generic;
+    using System.Diagnostics;
+    using System.Linq;
+    using Sdk;
 
-namespace PackageManagement {
     /// <summary>
     /// A Package provider for PM.
     ///
@@ -31,7 +31,7 @@ namespace PackageManagement {
     ///
     /// todo: Give this class a proper name
     /// </summary>
-    public class PackageProvider {
+    public class AppsProvider {
         /// <summary>
         /// The features that this package supports.
         /// todo: fill in the feature strings for this provider
@@ -61,7 +61,7 @@ namespace PackageManagement {
         /// </summary>
         /// <returns>The name of this provider </returns>
         public string PackageProviderName {
-            get { return "SampleProvider"; }
+            get { return "AppsProvider"; }
         }
 
         /// <summary>
@@ -312,30 +312,5 @@ namespace PackageManagement {
 
             // todo: GetPackageDetails that are more expensive than FindPackage* can deliver
         }
-
-        /// <summary>
-        /// Initializes a batch search request.
-        /// </summary>
-        /// <param name="request">An object passed in from the CORE that contains functions that can be used to interact with the CORE and HOST</param>
-        /// <returns></returns>
-        public int StartFind(Request request) {
-            // Nice-to-have put a debug message in that tells what's going on.
-            request.Debug("Calling '{0}::StartFind'", PackageProviderName);
-
-            return default(int);
-        }
-
-        /// <summary>
-        /// Finalizes a batch search request.
-        /// </summary>
-        /// <param name="id"></param>
-        /// <param name="request">An object passed in from the CORE that contains functions that can be used to interact with the CORE and HOST</param>
-        /// <returns></returns>
-        public void CompleteFind(int id, Request request) {
-            // Nice-to-have put a debug message in that tells what's going on.
-            request.Debug("Calling '{0}::CompleteFind' '{1}'", PackageProviderName, id);
-
-        }
-
     }
 }
