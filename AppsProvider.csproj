@@ -86,7 +86,29 @@ for /f "delims=" %25%25a in ('powershell "$p = ((Get-ItemProperty -Path HKCU:\So
 
 :Run the tool to add the manifest to the binary.
 "%25MTEXE%25" -manifest $(ProjectDir)provider.manifest -outputresource:$(TargetPath);#101</PostBuildEvent>
+
+    <PSPostBuild><![CDATA[
+     mkdir hkcu:software\Microsoft\PackageManagement -ea silentlycontinue
+     Set-ItemProperty -Path hkcu:software\Microsoft\PackageManagement -Name AppSyndication -Value "$(TargetPath)"
+    ]]></PSPostBuild>
+
   </PropertyGroup>
+  <Target Name="AfterBuild" >
+    <PowerShell ScriptBlock="$(PSPostBuild)" />
+  </Target>
+  
+  <UsingTask TaskName="PowerShell" TaskFactory="CodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.v12.0.dll">
+    <ParameterGroup>
+      <ScriptBlock ParameterType="System.String" Required="true" />
+    </ParameterGroup>
+    <Task>
+      <Reference Include="$(MSBuildToolsPath)\Microsoft.Build.Tasks.v12.0.dll" />
+      <Code Type="Class" Language="cs"><![CDATA[
+    public class PowerShell : Microsoft.Build.Tasks.Exec {
+        public string ScriptBlock {set { EchoOff=true; Command = string.Format( "@powershell \"Invoke-Command -ScriptBlock {{ $errorActionPreference='Stop'; {0} ; exit $LASTEXITCODE }} \"",  value.Replace("\"","\\\"").Replace("\r\n",";").Replace("\n",";").Replace("\r",";")); } }
+    }]]></Code>
+    </Task>
+  </UsingTask>
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it.
        Other similar extension points exist, see Microsoft.Common.targets.
   <Target Name="BeforeBuild">
