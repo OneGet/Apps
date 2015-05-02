@@ -1,0 +1,3 @@
+[submodule "swidtag"]
+	path = swidtag
+	url = git@github.com:oneget/swidtag
