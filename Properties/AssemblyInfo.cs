@@ -19,12 +19,12 @@ using System.Runtime.InteropServices;
 // set of attributes. Change these attribute values to modify the information
 // associated with an assembly.
 
-[assembly: AssemblyTitle("$project.$provider")]
-[assembly: AssemblyDescription("PackageManagement package provider: $provider.")]
+[assembly: AssemblyTitle("AppSyndication.AppsProvider")]
+[assembly: AssemblyDescription("PackageManagement package provider: AppsProvider.")]
 [assembly: AssemblyConfiguration("")]
-[assembly: AssemblyCompany("$project")]
-[assembly: AssemblyProduct("$project.$provider")]
-[assembly: AssemblyCopyright("Copyright $project © 2014")]
+[assembly: AssemblyCompany("")]
+[assembly: AssemblyProduct("AppSyndication.AppsProvider")]
+[assembly: AssemblyCopyright("Copyright © 2015")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
 
@@ -36,7 +36,7 @@ using System.Runtime.InteropServices;
 
 // The following GUID is for the ID of the typelib if this project is exposed to COM
 
-[assembly: Guid("bff90b5a-cb46-49b3-a3d5-5df99bf23017")]
+[assembly: Guid("bff90b5a-8192-49b3-a3d5-5df99bf23017")]
 
 // Version information for an assembly consists of the following four values:
 //
