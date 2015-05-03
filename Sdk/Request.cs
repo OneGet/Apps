@@ -1,16 +1,16 @@
-//
-//  Copyright (c) Microsoft Corporation. All rights reserved.
+// 
+//  Copyright (c) Microsoft Corporation. All rights reserved. 
 //  Licensed under the Apache License, Version 2.0 (the "License");
 //  you may not use this file except in compliance with the License.
 //  You may obtain a copy of the License at
 //  http://www.apache.org/licenses/LICENSE-2.0
-//
+//  
 //  Unless required by applicable law or agreed to in writing, software
 //  distributed under the License is distributed on an "AS IS" BASIS,
 //  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 //  See the License for the specific language governing permissions and
 //  limitations under the License.
-//
+//  
 
 namespace PackageManagement.AppSyndication.Sdk {
     using System;
@@ -24,54 +24,137 @@ namespace PackageManagement.AppSyndication.Sdk {
         private Dictionary<string, string[]> _options;
         private string[] _packageSources;
 
+        public Dictionary<string, string[]> Options {
+            get {
+                return _options ?? (_options = OptionKeys.Where(each => !string.IsNullOrWhiteSpace(each)).ToDictionary(k => k, (k) => (GetOptionValues(k) ?? new string[0]).ToArray()));
+            }
+        }
+
+        public IEnumerable<string> PackageSources {
+            get {
+                return _packageSources ?? (_packageSources = (Sources ?? new string[0]).ToArray());
+            }
+        }
+
+        /// <summary>
+        ///     Yield values in a dictionary as key/value pairs. (one pair for each value in each key)
+        /// </summary>
+        /// <param name="dictionary"></param>
+        /// <returns></returns>
+        public bool Yield(Dictionary<string, string[]> dictionary) {
+            return dictionary.All(Yield);
+        }
+
+        public bool Yield(KeyValuePair<string, string[]> pair) {
+            if (pair.Value.Length == 0) {
+                return YieldKeyValuePair(pair.Key, null);
+            }
+            return pair.Value.All(each => YieldKeyValuePair(pair.Key, each));
+        }
+
+        public bool Error(ErrorCategory category, string targetObjectValue, string messageText, params object[] args) {
+            return Error(messageText, category.ToString(), targetObjectValue, FormatMessageString(messageText, args));
+        }
+
+        public bool Warning(string messageText, params object[] args) {
+            return Warning(FormatMessageString(messageText, args));
+        }
+
+        public bool Message(string messageText, params object[] args) {
+            return Message(FormatMessageString(messageText, args));
+        }
+
+        public bool Verbose(string messageText, params object[] args) {
+            return Verbose(FormatMessageString(messageText, args));
+        }
+
+        public bool Debug(string messageText, params object[] args) {
+            return Debug(FormatMessageString(messageText, args));
+        }
+
+        public int StartProgress(int parentActivityId, string messageText, params object[] args) {
+            return StartProgress(parentActivityId, FormatMessageString(messageText, args));
+        }
+
+        public bool Progress(int activityId, int progressPercentage, string messageText, params object[] args) {
+            return Progress(activityId, progressPercentage, FormatMessageString(messageText, args));
+        }
+
+        public string GetOptionValue(string name) {
+            // get the value from the request
+            return (GetOptionValues(name) ?? Enumerable.Empty<string>()).LastOrDefault();
+        }
+
+        private static string FixMeFormat(string formatString, object[] args) {
+            if (args == null || args.Length == 0) {
+                // not really any args, and not really expectng any
+                return formatString.Replace('{', '\u00ab').Replace('}', '\u00bb');
+            }
+            return args.Aggregate(formatString.Replace('{', '\u00ab').Replace('}', '\u00bb'), (current, arg) => current + string.Format(CultureInfo.CurrentCulture, " \u00ab{0}\u00bb", arg));
+        }
+
+        internal string GetMessageStringInternal(string messageText) {
+            return Messages.ResourceManager.GetString(messageText);
+        }
+
+        internal string FormatMessageString(string messageText, params object[] args) {
+            if (string.IsNullOrEmpty(messageText)) {
+                return string.Empty;
+            }
+
+            if (args == null) {
+                return messageText;
+            }
+
+            if (messageText.StartsWith(Constants.MSGPrefix, true, CultureInfo.CurrentCulture)) {
+                // check with the caller first, then with the local resources, and fallback to using the messageText itself.
+                messageText = GetMessageString(messageText.Substring(Constants.MSGPrefix.Length), GetMessageStringInternal(messageText) ?? messageText) ?? GetMessageStringInternal(messageText) ?? messageText;
+            }
+
+            // if it doesn't look like we have the correct number of parameters
+            // let's return a fix-me-format string.
+            var c = messageText.ToCharArray().Where(each => each == '{').Count();
+            if (c < args.Length) {
+                return FixMeFormat(messageText, args);
+            }
+            return string.Format(CultureInfo.CurrentCulture, messageText, args);
+        }
+
+        public bool YieldDynamicOption(string name, string expectedType, bool isRequired, IEnumerable<string> permittedValues) {
+            return YieldDynamicOption(name, expectedType, isRequired) && (permittedValues ?? Enumerable.Empty<string>()).All(each => YieldKeyValuePair(name, each));
+        }
+
         #region PackageMangaement Interfaces
+
         public interface IProviderServices {
-            bool IsElevated { get; }
-
+            bool IsElevated {get;}
             IEnumerable<object> FindPackageByCanonicalId(string canonicalId, Request requestObject);
-
             string GetCanonicalPackageId(string providerName, string packageName, string version, string source);
-
             string ParseProviderName(string canonicalPackageId);
-
             string ParsePackageName(string canonicalPackageId);
-
             string ParsePackageVersion(string canonicalPackageId);
-
             string ParsePackageSource(string canonicalPackageId);
-
             void DownloadFile(Uri remoteLocation, string localFilename, Request requestObject);
-
             bool IsSupportedArchive(string localFilename, Request requestObject);
-
             IEnumerable<string> UnpackArchive(string localFilename, string destinationFolder, Request requestObject);
-
             bool Install(string fileName, string additionalArgs, Request requestObject);
-
             bool IsSignedAndTrusted(string filename, Request requestObject);
         }
 
         public interface IPackageProvider {
-
         }
 
         public interface IPackageManagementService {
-            int Version { get; }
-
-            IEnumerable<string> ProviderNames { get; }
-
-            IEnumerable<string> AllProviderNames { get; }
-
-            IEnumerable<IPackageProvider> PackageProviders { get; }
-
+            int Version {get;}
+            IEnumerable<string> ProviderNames {get;}
+            IEnumerable<string> AllProviderNames {get;}
+            IEnumerable<IPackageProvider> PackageProviders {get;}
             IEnumerable<IPackageProvider> SelectProvidersWithFeature(string featureName);
-
             IEnumerable<IPackageProvider> SelectProvidersWithFeature(string featureName, string value);
-
             IEnumerable<IPackageProvider> SelectProviders(string providerName, Request requestObject);
-
             bool RequirePackageProvider(string requestor, string packageProviderName, string minimumVersion, Request requestObject);
         }
+
         #endregion
 
         #region core-apis
@@ -206,104 +289,5 @@ namespace PackageManagement.AppSyndication.Sdk {
         public abstract bool YieldValue(string value);
 
         #endregion
-        /// <summary>
-        ///     Yield values in a dictionary as key/value pairs. (one pair for each value in each key)
-        /// </summary>
-        /// <param name="dictionary"></param>
-        /// <returns></returns>
-        public bool Yield(Dictionary<string, string[]> dictionary) {
-            return dictionary.All(Yield);
-        }
-
-        public bool Yield(KeyValuePair<string, string[]> pair) {
-            if (pair.Value.Length == 0) {
-                return YieldKeyValuePair(pair.Key, null);
-            }
-            return pair.Value.All(each => YieldKeyValuePair(pair.Key, each));
-        }
-
-        public bool Error(ErrorCategory category, string targetObjectValue, string messageText, params object[] args) {
-            return Error(messageText, category.ToString(), targetObjectValue, FormatMessageString(messageText, args));
-        }
-
-        public bool Warning(string messageText, params object[] args) {
-            return Warning(FormatMessageString(messageText, args));
-        }
-
-        public bool Message(string messageText, params object[] args) {
-            return Message(FormatMessageString(messageText, args));
-        }
-
-        public bool Verbose(string messageText, params object[] args) {
-            return Verbose(FormatMessageString(messageText, args));
-        }
-
-        public bool Debug(string messageText, params object[] args) {
-            return Debug(FormatMessageString(messageText, args));
-        }
-
-        public int StartProgress(int parentActivityId, string messageText, params object[] args) {
-            return StartProgress(parentActivityId, FormatMessageString(messageText, args));
-        }
-
-        public bool Progress(int activityId, int progressPercentage, string messageText, params object[] args) {
-            return Progress(activityId, progressPercentage, FormatMessageString(messageText, args));
-        }
-
-        public string GetOptionValue(string name) {
-            // get the value from the request
-            return (GetOptionValues(name) ?? Enumerable.Empty<string>()).LastOrDefault();
-        }
-
-        private static string FixMeFormat(string formatString, object[] args) {
-            if (args == null || args.Length == 0) {
-                // not really any args, and not really expectng any
-                return formatString.Replace('{', '\u00ab').Replace('}', '\u00bb');
-            }
-            return args.Aggregate(formatString.Replace('{', '\u00ab').Replace('}', '\u00bb'), (current, arg) => current + string.Format(CultureInfo.CurrentCulture, " \u00ab{0}\u00bb", arg));
-        }
-
-        internal string GetMessageStringInternal(string messageText) {
-            return Messages.ResourceManager.GetString(messageText);
-        }
-
-        internal string FormatMessageString(string messageText, params object[] args) {
-            if (string.IsNullOrEmpty(messageText)) {
-                return string.Empty;
-            }
-
-            if (args == null) {
-                return messageText;
-            }
-
-            if (messageText.StartsWith(Constants.MSGPrefix, true, CultureInfo.CurrentCulture)) {
-                // check with the caller first, then with the local resources, and fallback to using the messageText itself.
-                messageText = GetMessageString(messageText.Substring(Constants.MSGPrefix.Length), GetMessageStringInternal(messageText) ?? messageText) ?? GetMessageStringInternal(messageText) ?? messageText;
-            }
-
-            // if it doesn't look like we have the correct number of parameters
-            // let's return a fix-me-format string.
-            var c = messageText.ToCharArray().Where(each => each == '{').Count();
-            if (c < args.Length) {
-                return FixMeFormat(messageText, args);
-            }
-            return string.Format(CultureInfo.CurrentCulture, messageText, args);
-        }
-
-        public bool YieldDynamicOption(string name, string expectedType, bool isRequired, IEnumerable<string> permittedValues) {
-            return YieldDynamicOption(name, expectedType, isRequired) && (permittedValues ?? Enumerable.Empty<string>()).All(each => YieldKeyValuePair(name, each));
-        }
-
-        public Dictionary<string, string[]> Options {
-            get {
-                return _options ?? (_options = OptionKeys.Where(each => !string.IsNullOrWhiteSpace(each)).ToDictionary(k => k, (k) => (GetOptionValues(k) ?? new string[0]).ToArray()));
-            }
-        }
-
-        public IEnumerable<string> PackageSources {
-            get {
-                return _packageSources ?? (_packageSources = (Sources ?? new string[0]).ToArray());
-            }
-        }
     }
 }

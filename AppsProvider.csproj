@@ -45,6 +45,9 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="Navigation\Feed.cs" />
+    <Compile Include="Navigation\Package.cs" />
+    <Compile Include="Navigation\Swid.cs" />
     <Compile Include="Sdk\Constants.cs" />
     <Compile Include="Sdk\ErrorCategory.cs" />
     <Compile Include="Sdk\Request.cs" />
@@ -67,6 +70,8 @@
     </Reference>
     <Reference Include="System">
     </Reference>
+    <Reference Include="System.Xml" />
+    <Reference Include="System.Xml.Linq" />
   </ItemGroup>
   <ItemGroup>
     <None Include="LICENSE" />
@@ -79,6 +84,7 @@
       <Name>Swidtag</Name>
     </ProjectReference>
   </ItemGroup>
+  <ItemGroup />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <PropertyGroup>
     <PostBuildEvent>:Locate MT.EXE Tool:
@@ -86,17 +92,14 @@ for /f "delims=" %25%25a in ('powershell "$p = ((Get-ItemProperty -Path HKCU:\So
 
 :Run the tool to add the manifest to the binary.
 "%25MTEXE%25" -manifest $(ProjectDir)provider.manifest -outputresource:$(TargetPath);#101</PostBuildEvent>
-
     <PSPostBuild><![CDATA[
      mkdir hkcu:software\Microsoft\PackageManagement -ea silentlycontinue
      Set-ItemProperty -Path hkcu:software\Microsoft\PackageManagement -Name AppSyndication -Value "$(TargetPath)"
     ]]></PSPostBuild>
-
   </PropertyGroup>
-  <Target Name="AfterBuild" >
+  <Target Name="AfterBuild">
     <PowerShell ScriptBlock="$(PSPostBuild)" />
   </Target>
-  
   <UsingTask TaskName="PowerShell" TaskFactory="CodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.v12.0.dll">
     <ParameterGroup>
       <ScriptBlock ParameterType="System.String" Required="true" />
