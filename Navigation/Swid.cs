@@ -17,7 +17,7 @@ namespace PackageManagement.AppSyndication.Navigation {
     using System.Collections.Generic;
     using System.Diagnostics.CodeAnalysis;
     using System.Linq;
-    using System.Xml.Linq;
+    using System.Text;
     using Microsoft.PackageManagement.SwidTag;
     using Microsoft.PackageManagement.SwidTag.Utility;
     using Sdk;
@@ -83,19 +83,26 @@ namespace PackageManagement.AppSyndication.Navigation {
         private Swidtag DownloadSwidtag(IEnumerable<Uri> locations) {
             foreach (var location in locations.WhereNotNull()) {
                 try {
-                    var filename = "swidtag.xml".GenerateTemporaryFilename();
-                    DownloadSwidtagToFile(filename, location);
-
+                    var content = _request.DownloadContent(location, SwidDownloadTimeout, false);
                     if (_timedOut) {
                         // try one more time...
-                        DownloadSwidtagToFile(filename, location);
+                        content = _request.DownloadContent(location, SwidDownloadTimeout, false);
                     }
-
-                    if (filename.FileExists()) {
-                        var document = XDocument.Load(filename);
-                        if (Swidtag.IsSwidtag(document.Root)) {
+                    if (content.Length > 0) {
+                        var document = Encoding.UTF8.GetString(content);
+                        Swidtag tag = null;
+                        if (document.StartsWith("<?xml")) {
+                            tag = Swidtag.LoadXml(document);
+                        }
+                        if (tag == null && document.StartsWith("{")) {
+                            tag = Swidtag.LoadJson(document);
+                        }
+                        if (tag == null ) {
+                            tag = Swidtag.LoadHtml(document);
+                        }
+                        if (tag != null) {
                             Location = location;
-                            return new Swidtag(document);
+                            return tag;
                         }
                     }
                 } catch (Exception e) {
@@ -103,18 +110,6 @@ namespace PackageManagement.AppSyndication.Navigation {
                 }
             }
             return null;
-        }
-
-        private string DownloadSwidtagToFile(string filename, Uri location) {
-            if (_request.ProviderServices == null) {
-                // during initialization, the pluggable downloader isn't available.
-                // luckily, it's built into this assembly, so we'll create and use it directly.
-                //filename = new WebDownloader().DownloadFile(location, filename, SwidDownloadTimeout, false, DownloadRequest.As<Request>());
-            } else {
-                // otherwise, we can just use the pluggable one.
-                //filename = _request.ProviderServices.DownloadFile(location, filename, SwidDownloadTimeout, false, DownloadRequest);
-            }
-            return filename;
         }
 
         internal Swidtag DownloadSwidtag(IEnumerable<Link> locations) {

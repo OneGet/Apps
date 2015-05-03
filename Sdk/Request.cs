@@ -16,9 +16,18 @@ namespace PackageManagement.AppSyndication.Sdk {
     using System;
     using System.Collections.Generic;
     using System.Globalization;
+    using System.IO;
     using System.Linq;
+    using System.Net;
+    using System.Runtime.InteropServices;
     using System.Security;
+    using System.Threading;
+    using Microsoft.PackageManagement.SwidTag;
+    using Microsoft.PackageManagement.SwidTag.Utility;
+    using Navigation;
     using Resources;
+    using Directory = System.IO.Directory;
+    using File = System.IO.File;
 
     public abstract class Request {
         private Dictionary<string, string[]> _options;
@@ -98,30 +107,290 @@ namespace PackageManagement.AppSyndication.Sdk {
         }
 
         internal string FormatMessageString(string messageText, params object[] args) {
-            if (string.IsNullOrEmpty(messageText)) {
-                return string.Empty;
-            }
+            try {
 
-            if (args == null) {
-                return messageText;
-            }
+                if (string.IsNullOrEmpty(messageText)) {
+                    return string.Empty;
+                }
 
-            if (messageText.StartsWith(Constants.MSGPrefix, true, CultureInfo.CurrentCulture)) {
-                // check with the caller first, then with the local resources, and fallback to using the messageText itself.
-                messageText = GetMessageString(messageText.Substring(Constants.MSGPrefix.Length), GetMessageStringInternal(messageText) ?? messageText) ?? GetMessageStringInternal(messageText) ?? messageText;
-            }
+                if (args == null) {
+                    return messageText;
+                }
 
-            // if it doesn't look like we have the correct number of parameters
-            // let's return a fix-me-format string.
-            var c = messageText.ToCharArray().Where(each => each == '{').Count();
-            if (c < args.Length) {
+                if (messageText.StartsWith(Constants.MSGPrefix, true, CultureInfo.CurrentCulture)) {
+                    // check with the caller first, then with the local resources, and fallback to using the messageText itself.
+                    messageText = GetMessageString(messageText.Substring(Constants.MSGPrefix.Length), GetMessageStringInternal(messageText) ?? messageText) ?? GetMessageStringInternal(messageText) ?? messageText;
+                }
+
+                // if it doesn't look like we have the correct number of parameters
+                // let's return a fix-me-format string.
+                var c = messageText.ToCharArray().Where(each => each == '{').Count();
+                if (c < args.Length) {
+                    return FixMeFormat(messageText, args);
+                }
+                return string.Format(CultureInfo.CurrentCulture, messageText, args);
+            } catch {
                 return FixMeFormat(messageText, args);
             }
-            return string.Format(CultureInfo.CurrentCulture, messageText, args);
+        }
+    
+
+    public bool YieldDynamicOption(string name, string expectedType, bool isRequired, IEnumerable<string> permittedValues) {
+            return YieldDynamicOption(name, expectedType, isRequired) && (permittedValues ?? Enumerable.Empty<string>()).All(each => YieldKeyValuePair(name, each));
         }
 
-        public bool YieldDynamicOption(string name, string expectedType, bool isRequired, IEnumerable<string> permittedValues) {
-            return YieldDynamicOption(name, expectedType, isRequired) && (permittedValues ?? Enumerable.Empty<string>()).All(each => YieldKeyValuePair(name, each));
+        public string DownloadFile(Uri remoteLocation, string localFilename,int timeoutMilliseconds, bool showProgress) {
+            if (remoteLocation == null) {
+                throw new ArgumentNullException("remoteLocation");
+            }
+
+            Debug("Calling 'WebDownloader::DownloadFile' '{0}','{1}','{2}','{3}'", remoteLocation, localFilename,timeoutMilliseconds,showProgress);
+
+            if (remoteLocation.Scheme.ToLowerInvariant() != "http" && remoteLocation.Scheme.ToLowerInvariant() != "https" && remoteLocation.Scheme.ToLowerInvariant() != "ftp") {
+                Error(ErrorCategory.InvalidResult, remoteLocation.ToString(), Constants.Messages.SchemeNotSupported, remoteLocation.Scheme);
+                return null;
+            }
+
+            if (localFilename == null) {
+                localFilename = "downloadedFile.tmp".GenerateTemporaryFilename();
+            }
+
+            localFilename = Path.GetFullPath(localFilename);
+
+            // did the caller pass us a directory name?
+            if (Directory.Exists(localFilename)) {
+                localFilename = Path.Combine(localFilename, "downloadedFile.tmp");
+            }
+
+            // make sure that the parent folder is created first.
+            var folder = Path.GetDirectoryName(localFilename);
+            if (!Directory.Exists(folder)) {
+                Directory.CreateDirectory(folder);
+            }
+
+            // clobber an existing file if it's already there.
+            // todo: in the future, we could check the md5 of the file and if the remote server supports it
+            // todo: we could skip the download.
+            if (File.Exists(localFilename)) {
+                localFilename.TryHardToDelete();
+            }
+
+            // setup the progress tracker if the caller wanted one.
+            int pid = 0;
+            if (showProgress) {
+                pid = StartProgress(0, "Downloading '{0}'", remoteLocation);
+            }
+
+            var webClient = new WebClient();
+
+            // Apparently, places like Codeplex know to let this thru!
+            webClient.Headers.Add("user-agent", "chocolatey command line");
+
+            var done = new ManualResetEvent(false);
+
+            webClient.DownloadFileCompleted += (sender, args) => {
+                if (args.Cancelled || args.Error != null) {
+                    localFilename = null;
+                }
+                done.Set();
+            };
+
+            var lastPercent = 0;
+
+            if (showProgress) {
+                webClient.DownloadProgressChanged += (sender, args) => {
+                    // Progress(requestObject, 2, (int)percent, "Downloading {0} of {1} bytes", args.BytesReceived, args.TotalBytesToReceive);
+                    var percent = (int)((args.BytesReceived*100)/args.TotalBytesToReceive);
+                    if (percent > lastPercent) {
+                        lastPercent = percent;
+                        Progress(pid, (int)((args.BytesReceived*100)/args.TotalBytesToReceive), "To {0}", localFilename);
+                    }
+                };
+            }
+
+            // start the download 
+            webClient.DownloadFileAsync(remoteLocation, localFilename);
+
+            // wait for the completion 
+            if (timeoutMilliseconds > 0) {
+                if (!done.WaitOne(timeoutMilliseconds)) {
+                    webClient.CancelAsync();
+                    Warning(Constants.Status.TimedOut);
+                    Debug("Timed out downloading '{0}'", remoteLocation.AbsoluteUri);
+                    return null;
+                }
+            } else {
+                // wait until it completes or fails on it's own
+                done.WaitOne();
+            }
+            
+            // if we don't have the file by this point, we've failed.
+            if (localFilename == null || !File.Exists(localFilename)) {
+                CompleteProgress(pid, false);
+                Error(ErrorCategory.InvalidResult, remoteLocation.ToString(), Constants.Messages.UnableToDownload, remoteLocation.ToString(), localFilename);
+                return null;
+            }
+
+            if (showProgress) {
+                CompleteProgress(pid, true);
+            }
+
+            return localFilename;
+        }
+
+        public byte[] DownloadContent(Uri remoteLocation, int timeoutMilliseconds, bool showProgress) {
+            if (remoteLocation == null) {
+                throw new ArgumentNullException("remoteLocation");
+            }
+            var result = new byte[0];
+
+            Debug("Calling 'WebDownloader::DownloadFile' '{0}','{1}','{2}'", remoteLocation, timeoutMilliseconds, showProgress);
+
+            if (remoteLocation.Scheme.ToLowerInvariant() != "http" && remoteLocation.Scheme.ToLowerInvariant() != "https" && remoteLocation.Scheme.ToLowerInvariant() != "ftp") {
+                Error(ErrorCategory.InvalidResult, remoteLocation.ToString(), Constants.Messages.SchemeNotSupported, remoteLocation.Scheme);
+                return null;
+            }
+
+            // setup the progress tracker if the caller wanted one.
+            int pid = 0;
+            if (showProgress) {
+                pid = StartProgress(0, "Downloading '{0}'", remoteLocation);
+            }
+
+            var webClient = new WebClient();
+
+            // Apparently, places like Codeplex know to let this thru!
+            webClient.Headers.Add("user-agent", "chocolatey command line");
+
+            var done = new ManualResetEvent(false);
+
+            webClient.DownloadDataCompleted += (sender, args) => {
+                if (args.Cancelled || args.Error != null) {
+                    result = new byte[0];
+                }
+                result = args.Result;
+                done.Set();
+            };
+
+            var lastPercent = 0;
+
+            if (showProgress) {
+                webClient.DownloadProgressChanged += (sender, args) => {
+                    // Progress(requestObject, 2, (int)percent, "Downloading {0} of {1} bytes", args.BytesReceived, args.TotalBytesToReceive);
+                    var percent = (int)((args.BytesReceived * 100) / args.TotalBytesToReceive);
+                    if (percent > lastPercent) {
+                        lastPercent = percent;
+                        Progress(pid, (int)((args.BytesReceived * 100) / args.TotalBytesToReceive), ".");
+                    }
+                };
+            }
+
+            // start the download 
+            webClient.DownloadDataAsync(remoteLocation);
+
+            // wait for the completion 
+            if (timeoutMilliseconds > 0) {
+                if (!done.WaitOne(timeoutMilliseconds)) {
+                    webClient.CancelAsync();
+                    Warning(Constants.Status.TimedOut);
+                    Debug("Timed out downloading '{0}'", remoteLocation.AbsoluteUri);
+                    return null;
+                }
+            }
+            else {
+                // wait until it completes or fails on it's own
+                done.WaitOne();
+            }
+
+            // if we don't have the file by this point, we've failed.
+            if (result.Length ==0) {
+                CompleteProgress(pid, false);
+                Error(ErrorCategory.InvalidResult, remoteLocation.ToString(), Constants.Messages.UnableToDownload, remoteLocation.ToString(),"");
+                return result;
+            }
+
+            if (showProgress) {
+                CompleteProgress(pid, true);
+            }
+
+            return result;
+        }
+
+        private static bool AnyNullOrEmpty(params string[] args) {
+            return args.Any(String.IsNullOrWhiteSpace);
+        }
+
+        internal bool YieldFromSwidtag(Package provider, string requiredVersion, string minimumVersion, string maximumVersion, string searchKey) {
+            if (provider == null) {
+                // if the provider isn't there, just return.
+                return !IsCanceled;
+            }
+
+            if (AnyNullOrEmpty(provider.Name, provider.Version, provider.VersionScheme)) {
+                Debug("Skipping yield on swid due to missing field \r\n", provider.ToString());
+                return !IsCanceled;
+            }
+
+            if (!String.IsNullOrWhiteSpace(requiredVersion)) {
+                if (provider.Version != requiredVersion) {
+                    return !IsCanceled;
+                }
+            }
+            else {
+                if (!String.IsNullOrWhiteSpace(minimumVersion) && VersionComparer.CompareVersions(provider.VersionScheme, provider.Version, minimumVersion) < 0) {
+                    return !IsCanceled;
+                }
+
+                if (!String.IsNullOrWhiteSpace(maximumVersion) && VersionComparer.CompareVersions(provider.VersionScheme, provider.Version, maximumVersion) > 0) {
+                    return !IsCanceled;
+                }
+            }
+            return YieldFromSwidtag(provider, searchKey);
+        }
+
+        internal bool YieldFromSwidtag(Package pkg, string searchKey) {
+            if (pkg == null) {
+                return !IsCanceled;
+            }
+
+            var provider = pkg._swidtag;
+            var targetFilename = provider.Links.Select(each => each.Attributes[Iso19770_2.Discovery.TargetFilename]).WhereNotNull().FirstOrDefault();
+            var summary = new MetadataIndexer(provider)[Iso19770_2.Attributes.Summary.LocalName].FirstOrDefault();
+
+            var fastPackageReference = pkg.Location.AbsoluteUri;
+            lock (this) {
+                if (YieldSoftwareIdentity(fastPackageReference, provider.Name, provider.Version, provider.VersionScheme, summary, null, searchKey, null, targetFilename) != null) {
+                    // yield all the meta/attributes
+                    if (provider.Meta.Any(
+                        m => {
+                            var element = AddMeta(fastPackageReference);
+                            var attributes = m.Attributes;
+                            return attributes.Keys.Any(key => {
+                                var nspace = key.Namespace.ToString();
+                                if (String.IsNullOrWhiteSpace(nspace)) {
+                                    return AddMetadata(element, key.LocalName, attributes[key]) == null;
+                                }
+
+                                return AddMetadata(element, new Uri(nspace), key.LocalName, attributes[key]) == null;
+                            });
+                        })) {
+                        return !IsCanceled;
+                    }
+
+                    if (provider.Links.Any(link => AddLink(link.HRef, link.Relationship, link.MediaType, link.Ownership, link.Use, link.Media, link.Artifact) == null)) {
+                        return !IsCanceled;
+                    }
+
+                    if (provider.Entities.Any(entity => AddEntity(entity.Name, entity.RegId, entity.Role, entity.Thumbprint) == null)) {
+                        return !IsCanceled;
+                    }
+
+                    if (AddMetadata(fastPackageReference, "FromTrustedSource", false.ToString()) == null) {
+                        return !IsCanceled;
+                    }
+                }
+            }
+            return !IsCanceled;
         }
 
         #region PackageMangaement Interfaces

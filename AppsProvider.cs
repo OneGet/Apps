@@ -17,6 +17,10 @@ namespace PackageManagement.AppSyndication {
     using System.Collections.Generic;
     using System.Diagnostics;
     using System.Linq;
+    using System.Runtime.Serialization.Formatters;
+    using Microsoft.PackageManagement.SwidTag;
+    using Microsoft.PackageManagement.SwidTag.Utility;
+    using Navigation;
     using Sdk;
 
     /// <summary>
@@ -40,6 +44,8 @@ namespace PackageManagement.AppSyndication {
         ///     todo: fill in the feature strings for this provider
         /// </summary>
         protected static Dictionary<string, string[]> Features = new Dictionary<string, string[]> {
+            { Constants.Features.SupportedSchemes, new [] {"http", "https", "ftp", "file"}},
+
 #if FOR_EXAMPLE
     // add this if you want to 'hide' your provider by default.
             { Constants.Features.AutomationOnly, Constants.FeaturePresent },
@@ -47,29 +53,28 @@ namespace PackageManagement.AppSyndication {
             // specify the extensions that your provider uses for its package files (if you have any)
             { Constants.Features.SupportedExtensions, new[]{"mypkg"}},
 
-            // you can list the URL schemes that you support searching for packages with
-            { Constants.Features.SupportedSchemes, new [] {"http", "https", "file"}},
-
             // you can list the magic signatures (bytes at the beginning of a file) that we can use
             // to peek and see if a given file is yours.
             { Constants.Features.MagicSignatures, Constants.Signatures.ZipVariants},
 #endif
         };
 
+        private static readonly IEqualityComparer<Package> _packageEqualityComparer = new Microsoft.PackageManagement.SwidTag.Utility.EqualityComparer<Package>(
+          (x, y) => x.Name.EqualsIgnoreCase(y.Name) && x.Version.EqualsIgnoreCase(y.Version), (x) => (x.Name + x.Version).GetHashCode());
+
+
         /// <summary>
         ///     Returns the name of the Provider.
-        ///     todo: Change this to the common name for your package provider.
         /// </summary>
         /// <returns>The name of this provider </returns>
         public string PackageProviderName {
             get {
-                return "AppsProvider";
+                return "Apps";
             }
         }
 
         /// <summary>
         ///     Returns the version of the Provider.
-        ///     todo: Change this to the version for your package provider.
         /// </summary>
         /// <returns>The version of this provider </returns>
         public string ProviderVersion {
@@ -171,6 +176,10 @@ namespace PackageManagement.AppSyndication {
             if (request.Sources.Any()) {
                 // the system is requesting sources that match the values passed.
                 // if the value passed can be a legitimate source, but is not registered, return a package source marked unregistered.
+                var feeds = request.PackageSources.Select(each => { Uri uri; return Uri.TryCreate(each, UriKind.Absolute, out uri) ? uri : null; }).WhereNotNull();
+                foreach (var feed in feeds) {
+                    request.YieldPackageSource(feed.AbsoluteUri, feed.AbsoluteUri, false, false, false);
+                }
             } else {
                 // the system is requesting all the registered sources
             }
@@ -238,8 +247,49 @@ namespace PackageManagement.AppSyndication {
         public void FindPackage(string name, string requiredVersion, string minimumVersion, string maximumVersion, int id, Request request) {
             // Nice-to-have put a debug message in that tells what's going on.
             request.Debug("Calling '{0}::FindPackage' '{1}','{2}','{3}','{4}'", PackageProviderName, requiredVersion, minimumVersion, maximumVersion, id);
+            if (request.PackageSources.IsNullOrEmpty()) {
+                request.Warning("Supply a source for the feed (ie, -source http://foo.com/feed)");
+                return;
+            }
 
-            // todo: find package by name
+            var feeds =request.PackageSources.Select(each => { Uri uri;return Uri.TryCreate(each, UriKind.Absolute, out uri) ? uri : null;} ).WhereNotNull().Select( each => new Feed( request, each.SingleItemAsEnumerable()));
+
+            feeds.ParallelForEach(feed => {
+                if (string.IsNullOrWhiteSpace(name)) {
+                    foreach (var package in feed.Query().Distinct(_packageEqualityComparer)) {
+                        if (request.IsCanceled) {
+                            return;
+                        }
+
+                        request.YieldFromSwidtag(package, requiredVersion, minimumVersion, maximumVersion, name);
+                    }
+                    return;
+                }
+
+                if (!string.IsNullOrWhiteSpace(requiredVersion)) {
+                    foreach (var package in feed.Query(name, requiredVersion).Distinct(_packageEqualityComparer)) {
+                        if (request.IsCanceled) {
+                            return;
+                        }
+                        request.YieldFromSwidtag(package, name);
+                    }
+                    return;
+                }
+
+                if (request.GetOptionValue("AllVersions").IsTrue() && string.IsNullOrWhiteSpace(minimumVersion)) {
+                    minimumVersion = "0.0";
+                }
+
+                if (!string.IsNullOrWhiteSpace(minimumVersion) || !string.IsNullOrEmpty(maximumVersion)) {
+                    foreach (var package in feed.Query(name, minimumVersion, maximumVersion).Distinct(_packageEqualityComparer)) {
+                        if (request.IsCanceled) {
+                            return;
+                        }
+                        request.YieldFromSwidtag(package, name);
+                    }
+                    return;
+                }
+            });
         }
 
         /// <summary>

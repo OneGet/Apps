@@ -97,6 +97,11 @@ namespace PackageManagement.AppSyndication.Sdk {
             public static string[] ZipVariants = new[] {Zip, /* should have EXEs? */};
         }
 
+
+        internal static class Status {
+            internal const string TimedOut = "TimedOut";
+        }
+
         public static partial class SwidTag {
             public const string SoftwareIdentity = "SoftwareIdentity";
         }
